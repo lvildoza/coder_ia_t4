@@ -1,0 +1,307 @@
+{
+  "name": "M04 | Worker 02 | Crear Reserva",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "request_id"
+            },
+            {
+              "name": "cliente"
+            },
+            {
+              "name": "profesional"
+            },
+            {
+              "name": "fecha"
+            },
+            {
+              "name": "hora"
+            },
+            {
+              "name": "duracion_minutos",
+              "type": "number"
+            },
+            {
+              "name": "aceptacion_explicita",
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "01f88aad-0396-42c1-925b-4540f518d625",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "9e2449ad864492da9d5d6529e1fd81bd6edcc14b4e811ce91ae128b136879fec@group.calendar.google.com",
+          "mode": "list",
+          "cachedResultName": "turnos"
+        },
+        "start": "={{ DateTime.fromISO($json.fecha + 'T' + $json.hora, { zone: 'America/Argentina/Buenos_Aires' }).toISO() }}",
+        "end": "={{ DateTime.fromISO($json.fecha + 'T' + $json.hora, { zone: 'America/Argentina/Buenos_Aires' }).plus({ minutes: Number($json.duracion_minutos) }).toISO() }}",
+        "additionalFields": {
+          "description": "={{ 'Cliente: ' + $json.cliente + '\\nProfesional: ' + $json.profesional + '\\nDuración: ' + $json.duracion_minutos + ' minutos\\nRequest ID: ' + $json.request_id }}",
+          "summary": "={{ 'Turno - ' + $json.cliente + ' - ' + $json.profesional }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1296,
+        -304
+      ],
+      "id": "4be547e3-371e-47c3-9b55-bd2033cd7e35",
+      "name": "Create an event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "qkNB3vAGzNRMOW6k",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst solicitud = $input.first().json;\n\nconst {\n  request_id,\n  cliente,\n  profesional,\n  fecha,\n  hora,\n  duracion_minutos,\n  aceptacion_explicita\n} = solicitud;\n\n// Normalización de datos\nconst datos = {\n  request_id: String(request_id ?? '').trim(),\n  cliente: String(cliente ?? '').trim(),\n  profesional: String(profesional ?? '').trim(),\n  fecha: String(fecha ?? '').trim(),\n  hora: String(hora ?? '').trim(),\n  duracion_minutos: Number(duracion_minutos),\n  aceptacion_explicita: aceptacion_explicita === true\n};\n\n// Validaciones\nconst errores = [];\n\nif (!datos.request_id) {\n  errores.push('request_id obligatorio');\n}\n\nif (!datos.cliente) {\n  errores.push('cliente obligatorio');\n}\n\n// Si no se especifica profesional,\n// se interpreta como \"sin preferencia\".\nif (!datos.profesional) {\n  datos.profesional = 'SIN_PREFERENCIA';\n}\n\n// Catálogo de profesionales habilitados\nconst profesionalesValidos = [\n  'Martin',\n  'Lucas',\n  'Nicolas',\n  'SIN_PREFERENCIA'\n];\n\n// Validar que el profesional pertenezca al catálogo\nif (!profesionalesValidos.includes(datos.profesional)) {\n  errores.push('Profesional no reconocido');\n}\n\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(datos.fecha)) {\n  errores.push('fecha inválida');\n} else {\n  const [y, m, d] = datos.fecha.split('-').map(Number);\n  const fechaUTC = new Date(Date.UTC(y, m - 1, d));\n\n  if (\n    fechaUTC.getUTCFullYear() !== y ||\n    fechaUTC.getUTCMonth() !== m - 1 ||\n    fechaUTC.getUTCDate() !== d\n  ) {\n    errores.push('fecha inexistente');\n  }\n}\n\nif (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(datos.hora)) {\n  errores.push('hora inválida');\n}\n\nif (\n  !Number.isInteger(datos.duracion_minutos) ||\n  datos.duracion_minutos <= 0\n) {\n  errores.push('duracion_minutos inválida');\n}\n\nif (!datos.aceptacion_explicita) {\n  errores.push('No existe aceptación explícita del cliente');\n}\n\n// Resultado del contrato\nconst contrato_valido = errores.length === 0;\n\nreturn [{\n  json: {\n    ...datos,\n    contrato_valido,\n    estado: contrato_valido\n      ? 'validado'\n      : 'rechazado',\n    errores\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        0
+      ],
+      "id": "b01f2aa9-cf94-4958-8ff0-fedb71b9ea28",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ef877d10-5c86-40fc-ae51-c37a0c7b6254",
+              "leftValue": "={{ $json.contrato_valido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        384,
+        0
+      ],
+      "id": "79e21d0e-4037-4cbf-8662-373bbb954a19",
+      "name": "IF | Contrato válido"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "9e2449ad864492da9d5d6529e1fd81bd6edcc14b4e811ce91ae128b136879fec@group.calendar.google.com",
+          "mode": "list",
+          "cachedResultName": "turnos"
+        },
+        "timeMin": "={{ DateTime.fromISO($json.fecha + 'T' + $json.hora, { zone: 'America/Argentina/Buenos_Aires' }).toISO() }}",
+        "timeMax": "={{ DateTime.fromISO($json.fecha + 'T' + $json.hora, { zone: 'America/Argentina/Buenos_Aires' }).plus({ minutes: $json.duracion_minutos }).toISO() }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        624,
+        -112
+      ],
+      "id": "6e17e1df-6d34-418b-994d-f8ba85ad1b65",
+      "name": "Get many events",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "qkNB3vAGzNRMOW6k",
+          "name": "Google Calendar account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst solicitud = $('Code in JavaScript').first().json;\nconst eventos = $input.all();\n\nconst profesionales = ['Martin', 'Lucas', 'Nicolas'];\n\nconst normalizar = (valor) =>\n  String(valor ?? '')\n    .trim()\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '');\n\nconst solicitado = normalizar(solicitud.profesional);\nconst sinPreferencia = solicitado === 'sin_preferencia';\nconst duracion = Number(solicitud.duracion_minutos);\n\nconst inicio = DateTime.fromISO(\n  `${solicitud.fecha}T${solicitud.hora}`,\n  { zone: 'America/Argentina/Buenos_Aires' }\n);\n\nif (!inicio.isValid) {\n  throw new Error('Fecha u hora inválida');\n}\n\nif (!Number.isInteger(duracion) || duracion <= 0) {\n  throw new Error('Duración inválida');\n}\n\nif (!sinPreferencia &&\n    !profesionales.some(p => normalizar(p) === solicitado)) {\n  throw new Error('Profesional no reconocido');\n}\n\nconst fin = inicio.plus({ minutes: duracion });\nconst ocupados = new Set();\nconst conflictos = [];\n\nfor (const item of eventos) {\n  const evento = item.json;\n\n  if (!evento.id || evento.status === 'cancelled') continue;\n\n  const desdeISO = evento.start?.dateTime;\n  const hastaISO = evento.end?.dateTime;\n\n  if (!desdeISO || !hastaISO) {\n    throw new Error(`Evento sin horario válido: ${evento.id}`);\n  }\n\n  const desde = DateTime.fromISO(desdeISO);\n  const hasta = DateTime.fromISO(hastaISO);\n\n  if (!desde.isValid || !hasta.isValid) {\n    throw new Error(`Fechas inválidas en evento: ${evento.id}`);\n  }\n\n  if (desde < fin && hasta > inicio) {\n    const partes = String(evento.summary ?? '').split(' - ');\n    const profesionalEvento = normalizar(partes.at(-1))\n      .split(',')[0]\n      .trim();\n\n    const reconocido = profesionales.some(\n      p => normalizar(p) === profesionalEvento\n    );\n\n    if (!reconocido) {\n      throw new Error(\n        `Evento sin profesional reconocido: ${evento.id}`\n      );\n    }\n\n    ocupados.add(profesionalEvento);\n\n    if (sinPreferencia || profesionalEvento === solicitado) {\n      conflictos.push({\n        id: evento.id,\n        titulo: evento.summary,\n        inicio: desdeISO,\n        fin: hastaISO\n      });\n    }\n  }\n}\n\nconst candidatos = sinPreferencia\n  ? profesionales\n  : profesionales.filter(p => normalizar(p) === solicitado);\n\nconst disponibles = candidatos.filter(\n  p => !ocupados.has(normalizar(p))\n);\n\nconst asignado = disponibles[0] ?? null;\nconst disponible = asignado !== null;\n\nreturn [{\n  json: {\n    ...solicitud,\n    profesional: asignado,\n    profesional_solicitado: solicitud.profesional,\n    profesionales_disponibles: disponibles,\n    duracion_minutos: duracion,\n    disponible,\n    conflictos,\n    estado: disponible ? 'disponible' : 'no_disponible'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        -208
+      ],
+      "id": "1d21610b-0e4f-4fc4-b240-f5c75087a38c",
+      "name": "Code | Validar conflictos"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5a267a90-dade-4444-bfcd-b81da657fe8a",
+              "leftValue": "={{ $json.disponible }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1040,
+        -208
+      ],
+      "id": "acd1d2d8-378d-4f15-a2cb-f65d938faad6",
+      "name": "IF | Disponible"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst evento = $input.first().json;\n\nconst solicitud = $('Code | Validar conflictos')\n  .first().json;\n\nif (!evento.id || evento.status === 'cancelled') {\n  throw new Error(\n    'Google Calendar no confirmó la creación del evento'\n  );\n}\n\nreturn [{\n  json: {\n    request_id: solicitud.request_id,\n    cliente: solicitud.cliente,\n    profesional: solicitud.profesional,\n    profesional_solicitado: solicitud.profesional_solicitado,\n    fecha: solicitud.fecha,\n    hora: solicitud.hora,\n    duracion_minutos: solicitud.duracion_minutos,\n    disponible: true,\n    estado: 'confirmada',\n    evento_creado: true,\n    event_id: evento.id,\n    reserva_confirmada: true,\n    conflictos: []\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        -304
+      ],
+      "id": "115e48bf-b3be-4d32-a581-527e5936e3fe",
+      "name": "Code | Confirmar Reserva"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "IF | Contrato válido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF | Contrato válido": {
+      "main": [
+        [
+          {
+            "node": "Get many events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many events": {
+      "main": [
+        [
+          {
+            "node": "Code | Validar conflictos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code | Validar conflictos": {
+      "main": [
+        [
+          {
+            "node": "IF | Disponible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF | Disponible": {
+      "main": [
+        [
+          {
+            "node": "Create an event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an event": {
+      "main": [
+        [
+          {
+            "node": "Code | Confirmar Reserva",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 30,
+    "availableInMCP": false
+  },
+  "versionId": "c4428b4f-6d2d-4d7d-b162-a3fccca1e73f",
+  "meta": {
+    "instanceId": "3fc945d96cd519b9192a233dff257e7181bd1d7c82ee69abd6a9b96e8de0b5e8"
+  },
+  "nodeGroups": [],
+  "id": "ji9mYmM9uWIZLgar",
+  "tags": []
+}

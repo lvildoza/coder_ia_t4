@@ -1,0 +1,142 @@
+{
+  "name": "M04 | Worker 01 | Consultar Disponibilidad",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "request_id"
+            },
+            {
+              "name": "profesional"
+            },
+            {
+              "name": "fecha"
+            },
+            {
+              "name": "hora"
+            },
+            {
+              "name": "duracion_minutos",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -224,
+        -16
+      ],
+      "id": "2f9924be-7583-4c17-b744-1b712c2ba95f",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "9e2449ad864492da9d5d6529e1fd81bd6edcc14b4e811ce91ae128b136879fec@group.calendar.google.com",
+          "mode": "list",
+          "cachedResultName": "turnos"
+        },
+        "timeMin": "={{ DateTime.fromISO($json.fecha + 'T' + $json.hora, { zone: 'America/Argentina/Buenos_Aires' }).toISO() }}",
+        "timeMax": "={{ DateTime.fromISO($json.fecha + 'T' + $json.hora, { zone: 'America/Argentina/Buenos_Aires' }).plus({ minutes: $json.duracion_minutos }).toISO() }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        -16
+      ],
+      "id": "75d2b6cd-2275-4dfb-b551-6ce5d5eab179",
+      "name": "Get many events",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "qkNB3vAGzNRMOW6k",
+          "name": "Google Calendar account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const solicitud = $('When Executed by Another Workflow').first().json;\nconst eventos = $input.all();\n\nconst profesionales = ['Martin', 'Lucas', 'Nicolas'];\n\nconst normalizar = (valor) =>\n  String(valor ?? '')\n    .trim()\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '');\n\nconst solicitado = normalizar(solicitud.profesional);\nconst sinPreferencia = solicitado === 'sin_preferencia';\n\nconst duracion = Number(solicitud.duracion_minutos);\n\nconst inicio = DateTime.fromISO(\n  `${solicitud.fecha}T${solicitud.hora}`,\n  { zone: 'America/Argentina/Buenos_Aires' }\n);\n\nif (!solicitado) {\n  throw new Error('Falta el profesional');\n}\n\nif (!sinPreferencia &&\n    !profesionales.some(p => normalizar(p) === solicitado)) {\n  throw new Error('Profesional no reconocido');\n}\n\nif (!inicio.isValid) {\n  throw new Error('Fecha u hora inválida');\n}\n\nif (!Number.isFinite(duracion) || duracion <= 0) {\n  throw new Error('Duración inválida');\n}\n\nconst fin = inicio.plus({ minutes: duracion });\nconst ocupados = new Set();\nconst conflictos = [];\n\nfor (const item of eventos) {\n  const evento = item.json;\n\n  if (!evento.id || !evento.summary) continue;\n  if (evento.status === 'cancelled') continue;\n\n  const partes = evento.summary.split(' - ');\n  const profesionalEvento = normalizar(partes.at(-1))\n    .split(',')[0]\n    .trim();\n\n  const desdeISO = evento.start?.dateTime;\n  const hastaISO = evento.end?.dateTime;\n\n  if (!desdeISO || !hastaISO) {\n    throw new Error(`Evento sin horario válido: ${evento.id}`);\n  }\n\n  const desde = DateTime.fromISO(desdeISO);\n  const hasta = DateTime.fromISO(hastaISO);\n\n  if (!desde.isValid || !hasta.isValid) {\n    throw new Error(`Fechas inválidas en evento: ${evento.id}`);\n  }\n\n  if (desde < fin && hasta > inicio) {\n    const reconocido = profesionales.some(\n      p => normalizar(p) === profesionalEvento\n    );\n\n    if (!reconocido) {\n      throw new Error(\n        `Profesional desconocido en evento: ${evento.id}`\n      );\n    }\n\n    ocupados.add(profesionalEvento);\n\n    if (sinPreferencia || profesionalEvento === solicitado) {\n      conflictos.push({\n        id: evento.id,\n        titulo: evento.summary,\n        inicio: desdeISO,\n        fin: hastaISO\n      });\n    }\n  }\n}\n\nconst candidatos = sinPreferencia\n  ? profesionales\n  : profesionales.filter(p => normalizar(p) === solicitado);\n\nconst disponibles = candidatos.filter(\n  p => !ocupados.has(normalizar(p))\n);\n\nconst asignado = disponibles[0] ?? null;\nconst disponible = asignado !== null;\n\nreturn [{\n  json: {\n    request_id: solicitud.request_id,\n    profesional: asignado,\n    profesional_solicitado: solicitud.profesional,\n    profesionales_disponibles: disponibles,\n    fecha: solicitud.fecha,\n    hora: solicitud.hora,\n    duracion_minutos: duracion,\n    disponible,\n    conflictos,\n    estado: disponible ? 'disponible' : 'no_disponible'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -32
+      ],
+      "id": "b4774851-aa8b-4c92-9b03-802db554b7d3",
+      "name": "Validar disponibilidad"
+    },
+    {
+      "parameters": {
+        "jsCode": "const solicitud = $('When Executed by Another Workflow')\n  .first().json;\n\nconst error = $input.first()?.json ?? {};\n\nreturn [{\n  json: {\n    request_id: solicitud.request_id,\n    profesional: solicitud.profesional,\n    fecha: solicitud.fecha,\n    hora: solicitud.hora,\n    duracion_minutos: solicitud.duracion_minutos,\n    disponible: false,\n    estado: \"error_tecnico\",\n    error_codigo: \"CALENDAR_UNAVAILABLE\",\n    reserva_confirmada: false,\n    conflictos: [],\n    mensaje: \"No pudimos verificar la agenda en este momento. Por favor, intentá nuevamente.\",\n    error_detalle: String(\n      error.error?.message ??\n      error.message ??\n      \"Error desconocido\"\n    )\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        192
+      ],
+      "id": "efb3ff46-9a8e-47b8-95a8-49dc0256561f",
+      "name": "Code | Fallback Google Calendar"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Get many events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many events": {
+      "main": [
+        [
+          {
+            "node": "Validar disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code | Fallback Google Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 30,
+    "availableInMCP": false
+  },
+  "versionId": "56535307-dc3e-488b-9856-c2e25dd7997d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3fc945d96cd519b9192a233dff257e7181bd1d7c82ee69abd6a9b96e8de0b5e8"
+  },
+  "nodeGroups": [],
+  "id": "Qcelm00VssWOGOto",
+  "tags": []
+}
